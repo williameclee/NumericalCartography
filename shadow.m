@@ -1,9 +1,9 @@
-function [HS, light_dir, flat_reflection] = hillshade(Z, varargin)
-    % HILLSHADE calculate hillshade of a DEM
+function Z_dp = shadow(Z, varargin)
+    % SHADOW calculate depth of shadow casted on a DEM
     % Syntax
     %   HS = hillshade(Z)
     %   HS = hillshade(Z, "Dx", Dx, ...
-    %       "azimuth", az_deg, "altitude", al_deg, ...
+    %       "azimuth", az, "altitude", al, ...
     %       "z_factor", ex_fac)
     %   HS = hillshade(Z, "Dx", Dx, ...
     %       "light_direction", light_dir, ...
@@ -18,9 +18,7 @@ function [HS, light_dir, flat_reflection] = hillshade(Z, varargin)
     %   "z_factor": Vertical exaggeration factor (default = 1)
     % Either "azimuth" and "altitude" or "light_direction" should be specified.
     % Output
-    %   HS: Hillshade matrix, with the same size as Z
-    %   light_dir: Light direction vector used in the calculation
-    %   flat_reflection: Hillshade value of a flat surface
+    %   Z_dp: Depth of shadow casted on the DEM
 
     % Assigning default parameters
     Dx = 1;
@@ -48,24 +46,17 @@ function [HS, light_dir, flat_reflection] = hillshade(Z, varargin)
     % Parameters cleaning
     Z_ex = Z * ex_fac / Dx;
 
-    if norm(light_dir(:)) == 0
-        light_dir = light_dir_calc(az, al);
-    else
-        light_dir = light_dir / sum(light_dir .^ 2);
+    if norm(light_dir(:)) ~= 0
+        al = asind(light_dir(3) / norm(light_dir));
+        az = atan2d(light_dir(2), light_dir(1));
     end
 
-    light_dir = light_dir * sign(light_dir(3));
-    light_dir = reshape(light_dir, [1, 1, 3]);
-    flat_reflection = light_dir(3);
+    % Prepare and rotate DEM
+    [Z_exp, I_exp, J_exp] = shadow_rotatefwd(Z_ex, az);
 
-    % Calculate hillshade
-    N = zeros([size(Z_ex), 3]);
-    [N(:, :, 1), N(:, :, 2), N(:, :, 3)] = surfnorm(Z_ex);
-    Light_dir = repmat(light_dir, [size(Z_ex)]);
-    HS = sum(Light_dir .* N, 3);
-    HS = max(HS, 0);
-end
+    Z_slp = Z_exp - tand(al) * J_exp;
+    Z_max = cummax(Z_slp, 1, "reverse", "omitnan");
+    Z_dpth = Z_slp - Z_max;
 
-function light_dir = light_dir_calc(az, al)
-    light_dir = [sind(az) * cosd(al), cosd(az) * cosd(al), sind(al)];
+    Z_dp = shadow_rotatebwd(I_exp, J_exp, Z_dpth, az, size(Z, 2) + 2, size(Z, 1) + 2);
 end
