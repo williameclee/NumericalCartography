@@ -26,6 +26,7 @@ function Z_dp = shadow(Z, varargin)
     al = 45;
     light_dir = [0, 0, 0];
     ex_fac = 1;
+    quality = "dirty";
 
     % Input parameters
     p = inputParser;
@@ -35,6 +36,7 @@ function Z_dp = shadow(Z, varargin)
     addOptional(p, "altitude", al);
     addOptional(p, "light_direction", light_dir);
     addOptional(p, "z_factor", ex_fac);
+    addOptional(p, "quality", quality);
     parse(p, Z, varargin{:});
     Z = p.Results.Z;
     Dx = p.Results.Dx;
@@ -42,6 +44,7 @@ function Z_dp = shadow(Z, varargin)
     al = p.Results.altitude;
     light_dir = p.Results.light_direction;
     ex_fac = p.Results.z_factor;
+    quality = p.Results.quality;
 
     % Parameters cleaning
     Z_ex = Z * ex_fac / Dx;
@@ -52,17 +55,16 @@ function Z_dp = shadow(Z, varargin)
     end
 
     % Prepare and rotate DEM
-    [Z_exp, I_exp, J_exp] = shadow_rotatefwd(Z_ex, az);
+    [Z_exp, I_exp, J_exp] = shadow_rotatefwd(Z_ex, az, quality);
 
     Z_slp = Z_exp - tand(al) * J_exp;
     Z_max = cummax(Z_slp, 1, "reverse", "omitnan");
     Z_dpth = Z_slp - Z_max;
 
-    Z_dp = shadow_rotatebwd(I_exp, J_exp, Z_dpth, az, size(Z, 2) + 2, size(Z, 1) + 2);
+    Z_dp = shadow_rotatebwd(I_exp, J_exp, Z_dpth, az, size(Z), quality);
 end
 
-
-function [Z_exp, I_exp, J_exp] = shadow_rotatefwd(Z, az)
+function [Z_exp, I_exp, J_exp] = shadow_rotatefwd(Z, az, quality)
     Z_pad = padarray(Z, [1, 1], 'replicate');
     [I_pad, J_pad] = meshgrid(1:size(Z_pad, 2), 1:size(Z_pad, 1));
     N = size(Z_pad, 2);
@@ -75,59 +77,66 @@ function [Z_exp, I_exp, J_exp] = shadow_rotatefwd(Z, az)
 
     Cx = [C1(1), C2(1), C3(1), C4(1)];
     Cy = [C1(2), C2(2), C3(2), C4(2)];
-    [I_exp, J_exp] = meshgrid(floor(min(Cx)):ceil(max(Cx)), ... 
+    [I_exp, J_exp] = meshgrid(floor(min(Cx)):ceil(max(Cx)), ...
         floor(min(Cy)):ceil(max(Cy)));
 
     IJ_rot = RM * [I_pad(:)'; J_pad(:)'];
     I_rot = IJ_rot(1, :).';
     J_rot = IJ_rot(2, :).';
 
-    I_rot = reshape(I_rot, size(Z_pad));
-    J_rot = reshape(J_rot, size(Z_pad));
-
     % Interpolate DEM
-    Z_exp = zeros(size(I_exp));
-    W = zeros(size(Z_exp));
+    switch quality
+        case "high"
+            Z_exp = griddata(I_rot, J_rot, Z_pad(:), I_exp, J_exp);
+        case "dirty"
+            I_rot = reshape(I_rot, size(Z_pad));
+            J_rot = reshape(J_rot, size(Z_pad));
+            Z_exp = zeros(size(I_exp));
+            W = zeros(size(Z_exp));
 
-    iofst = 1 - floor(min(Cx));
-    jofst = 1 - floor(min(Cy));
+            iofst = 1 - floor(min(Cx));
+            jofst = 1 - floor(min(Cy));
 
-    Ifl = floor(I_rot);
-    Jfl = floor(J_rot);
-    T = I_rot - Ifl;
-    S = J_rot - Jfl;
-    Ifl = Ifl + iofst;
-    Jfl = Jfl + jofst;
-    Z_exp(sub2ind(size(Z_exp), Jfl, Ifl)) ...
-        = Z_exp(sub2ind(size(Z_exp), Jfl, Ifl)) ...
-        + (1 - T) .* (1 - S) .* Z_pad;
-    Z_exp(sub2ind(size(Z_exp), Jfl + 1, Ifl)) ...
-        = Z_exp(sub2ind(size(Z_exp), Jfl + 1, Ifl)) ...
-        + (1 - T) .* S .* Z_pad;
-    Z_exp(sub2ind(size(Z_exp), Jfl, Ifl + 1)) ...
-        = Z_exp(sub2ind(size(Z_exp), Jfl, Ifl + 1)) ...
-        + T .* (1 - S) .* Z_pad;
-    Z_exp(sub2ind(size(Z_exp), Jfl + 1, Ifl + 1)) ...
-        = Z_exp(sub2ind(size(Z_exp), Jfl + 1, Ifl + 1)) ...
-        + T .* S .* Z_pad;
-    W(sub2ind(size(Z_exp), Jfl, Ifl)) ...
-        = W(sub2ind(size(Z_exp), Jfl, Ifl)) ...
-        + (1 - T) .* (1 - S);
-    W(sub2ind(size(Z_exp), Jfl + 1, Ifl)) ...
-        = W(sub2ind(size(Z_exp), Jfl + 1, Ifl)) ...
-        + (1 - T) .* S;
-    W(sub2ind(size(Z_exp), Jfl, Ifl + 1)) ...
-        = W(sub2ind(size(Z_exp), Jfl, Ifl + 1)) ...
-        + T .* (1 - S);
-    W(sub2ind(size(Z_exp), Jfl + 1, Ifl + 1)) ...
-        = W(sub2ind(size(Z_exp), Jfl + 1, Ifl + 1)) ...
-        + T .* S;
+            Ifl = floor(I_rot);
+            Jfl = floor(J_rot);
+            T = I_rot - Ifl;
+            S = J_rot - Jfl;
+            Ifl = Ifl + iofst;
+            Jfl = Jfl + jofst;
+            Z_exp(sub2ind(size(Z_exp), Jfl, Ifl)) ...
+                = Z_exp(sub2ind(size(Z_exp), Jfl, Ifl)) ...
+                + (1 - T) .* (1 - S) .* Z_pad;
+            Z_exp(sub2ind(size(Z_exp), Jfl + 1, Ifl)) ...
+                = Z_exp(sub2ind(size(Z_exp), Jfl + 1, Ifl)) ...
+                + (1 - T) .* S .* Z_pad;
+            Z_exp(sub2ind(size(Z_exp), Jfl, Ifl + 1)) ...
+                = Z_exp(sub2ind(size(Z_exp), Jfl, Ifl + 1)) ...
+                + T .* (1 - S) .* Z_pad;
+            Z_exp(sub2ind(size(Z_exp), Jfl + 1, Ifl + 1)) ...
+                = Z_exp(sub2ind(size(Z_exp), Jfl + 1, Ifl + 1)) ...
+                + T .* S .* Z_pad;
+            W(sub2ind(size(Z_exp), Jfl, Ifl)) ...
+                = W(sub2ind(size(Z_exp), Jfl, Ifl)) ...
+                + (1 - T) .* (1 - S);
+            W(sub2ind(size(Z_exp), Jfl + 1, Ifl)) ...
+                = W(sub2ind(size(Z_exp), Jfl + 1, Ifl)) ...
+                + (1 - T) .* S;
+            W(sub2ind(size(Z_exp), Jfl, Ifl + 1)) ...
+                = W(sub2ind(size(Z_exp), Jfl, Ifl + 1)) ...
+                + T .* (1 - S);
+            W(sub2ind(size(Z_exp), Jfl + 1, Ifl + 1)) ...
+                = W(sub2ind(size(Z_exp), Jfl + 1, Ifl + 1)) ...
+                + T .* S;
 
-    Z_exp(W ~= 0) = Z_exp(W ~= 0) ./ W(W ~= 0);
-    Z_exp(W == 0) = nan;
+            Z_exp(W ~= 0) = Z_exp(W ~= 0) ./ W(W ~= 0);
+            Z_exp(W == 0) = nan;
+    end
+
 end
 
-function Z_dp = shadow_rotatebwd(I_exp, J_exp, Z_dpth, az, N, M)
+function Z_dp = shadow_rotatebwd(I_exp, J_exp, Z_dpth, az, MN, quality)
+    N = MN(2);
+    M = MN(1);
     RM_b = [cosd(-az), -sind(-az); sind(-az), cosd(-az)];
 
     I_exp = I_exp(:);
@@ -141,47 +150,55 @@ function Z_dp = shadow_rotatebwd(I_exp, J_exp, Z_dpth, az, N, M)
     I_exp = IJ_rotb(1, :).';
     J_exp = IJ_rotb(2, :).';
 
-    Z_dp = zeros([M, N]);
-    W = zeros([M, N]);
+    % Interpolate DEM
+    switch quality
+        case "high"
+            [I, J] = meshgrid(2:N + 1, 2:M + 1);
+            Z_dp = griddata(I_exp, J_exp, Z_dpth, I, J);
+        case "dirty"
+            Z_dp = zeros(MN);
+            W = zeros(MN);
 
-    Ifl = floor(I_exp);
-    Jfl = floor(J_exp);
-    T = I_exp - Ifl;
-    S = J_exp - Jfl;
+            Ifl = floor(I_exp);
+            Jfl = floor(J_exp);
+            T = I_exp - Ifl;
+            S = J_exp - Jfl;
 
-    BL = (Ifl >= 1) & (Jfl >= 1) & (Ifl <= N) & (Jfl <= M);
-    BR = (Ifl + 1 >= 1) & (Jfl >= 1) & (Ifl + 1 <= N) & (Jfl <= M);
-    TL = (Ifl >= 1) & (Jfl + 1 >= 1) & (Ifl <= N) & (Jfl + 1 <= M);
-    TR = (Ifl + 1 >= 1) & (Jfl + 1 >= 1) & (Ifl + 1 <= N) & (Jfl + 1 <= M);
+            BL = (Ifl >= 1) & (Jfl >= 1) & (Ifl <= N) & (Jfl <= M);
+            BR = (Ifl + 1 >= 1) & (Jfl >= 1) & (Ifl + 1 <= N) & (Jfl <= M);
+            TL = (Ifl >= 1) & (Jfl + 1 >= 1) & (Ifl <= N) & (Jfl + 1 <= M);
+            TR = (Ifl + 1 >= 1) & (Jfl + 1 >= 1) & (Ifl + 1 <= N) & (Jfl + 1 <= M);
 
-    Z_dp(sub2ind(size(Z_dp), Jfl(BL), Ifl(BL))) ...
-        = Z_dp(sub2ind(size(Z_dp), Jfl(BL), Ifl(BL))) ...
-        + (1 - T(BL)) .* (1 - S(BL)) .* Z_dpth(BL);
-    Z_dp(sub2ind(size(Z_dp), Jfl(TL) + 1, Ifl(TL))) ...
-        = Z_dp(sub2ind(size(Z_dp), Jfl(TL) + 1, Ifl(TL))) ...
-        + (1 - T(TL)) .* S(TL) .* Z_dpth(TL);
-    Z_dp(sub2ind(size(Z_dp), Jfl(BR), Ifl(BR) + 1)) ...
-        = Z_dp(sub2ind(size(Z_dp), Jfl(BR), Ifl(BR) + 1)) ...
-        + T(BR) .* (1 - S(BR)) .* Z_dpth(BR);
-    Z_dp(sub2ind(size(Z_dp), Jfl(TR) + 1, Ifl(TR) + 1)) ...
-        = Z_dp(sub2ind(size(Z_dp), Jfl(TR) + 1, Ifl(TR) + 1)) ...
-        + T(TR) .* S(TR) .* Z_dpth(TR);
+            Z_dp(sub2ind(size(Z_dp), Jfl(BL), Ifl(BL))) ...
+                = Z_dp(sub2ind(size(Z_dp), Jfl(BL), Ifl(BL))) ...
+                + (1 - T(BL)) .* (1 - S(BL)) .* Z_dpth(BL);
+            Z_dp(sub2ind(size(Z_dp), Jfl(TL) + 1, Ifl(TL))) ...
+                = Z_dp(sub2ind(size(Z_dp), Jfl(TL) + 1, Ifl(TL))) ...
+                + (1 - T(TL)) .* S(TL) .* Z_dpth(TL);
+            Z_dp(sub2ind(size(Z_dp), Jfl(BR), Ifl(BR) + 1)) ...
+                = Z_dp(sub2ind(size(Z_dp), Jfl(BR), Ifl(BR) + 1)) ...
+                + T(BR) .* (1 - S(BR)) .* Z_dpth(BR);
+            Z_dp(sub2ind(size(Z_dp), Jfl(TR) + 1, Ifl(TR) + 1)) ...
+                = Z_dp(sub2ind(size(Z_dp), Jfl(TR) + 1, Ifl(TR) + 1)) ...
+                + T(TR) .* S(TR) .* Z_dpth(TR);
 
-    W(sub2ind(size(Z_dp), Jfl(BL), Ifl(BL))) ...
-        = W(sub2ind(size(Z_dp), Jfl(BL), Ifl(BL))) ...
-        + (1 - T(BL)) .* (1 - S(BL));
-    W(sub2ind(size(Z_dp), Jfl(TL) + 1, Ifl(TL))) ...
-        = W(sub2ind(size(Z_dp), Jfl(TL) + 1, Ifl(TL))) ...
-        + (1 - T(TL)) .* S(TL);
-    W(sub2ind(size(Z_dp), Jfl(BR), Ifl(BR) + 1)) ...
-        = W(sub2ind(size(Z_dp), Jfl(BR), Ifl(BR) + 1)) ...
-        + T(BR) .* (1 - S(BR));
-    W(sub2ind(size(Z_dp), Jfl(TR) + 1, Ifl(TR) + 1)) ...
-        = W(sub2ind(size(Z_dp), Jfl(TR) + 1, Ifl(TR) + 1)) ...
-        + T(TR) .* S(TR);
+            W(sub2ind(size(Z_dp), Jfl(BL), Ifl(BL))) ...
+                = W(sub2ind(size(Z_dp), Jfl(BL), Ifl(BL))) ...
+                + (1 - T(BL)) .* (1 - S(BL));
+            W(sub2ind(size(Z_dp), Jfl(TL) + 1, Ifl(TL))) ...
+                = W(sub2ind(size(Z_dp), Jfl(TL) + 1, Ifl(TL))) ...
+                + (1 - T(TL)) .* S(TL);
+            W(sub2ind(size(Z_dp), Jfl(BR), Ifl(BR) + 1)) ...
+                = W(sub2ind(size(Z_dp), Jfl(BR), Ifl(BR) + 1)) ...
+                + T(BR) .* (1 - S(BR));
+            W(sub2ind(size(Z_dp), Jfl(TR) + 1, Ifl(TR) + 1)) ...
+                = W(sub2ind(size(Z_dp), Jfl(TR) + 1, Ifl(TR) + 1)) ...
+                + T(TR) .* S(TR);
 
-    Z_dp(W ~= 0) = Z_dp(W ~= 0) ./ W(W ~= 0);
-    Z_dp(W == 0) = nan;
+            Z_dp(W ~= 0) = Z_dp(W ~= 0) ./ W(W ~= 0);
+            Z_dp(W == 0) = nan;
 
-    Z_dp = Z_dp(2:end - 1, 2:end - 1);
+            % Z_dp = Z_dp(2:end - 1, 2:end - 1);
+    end
+
 end
