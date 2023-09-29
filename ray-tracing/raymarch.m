@@ -1,14 +1,62 @@
-function ray = raymarch(ray)
+function R = raymarch(R)
     % RAYMARCH marches the ray to the next grid
-    if ray.aux.lx > ray.aux.ly
-        ray.aux.u  = ray.aux.originH_sft(1) + ray.aux.ly/ray.aux.sx;
-        ray.aux.v  = round(ray.aux.originH_sft(2) + ray.aux.ly/ray.aux.sy);
-        ray.aux.ly = ray.aux.ly + abs(ray.aux.sy);
+    if R.directionH(1) == 0 && R.directionH(2) == 0
+        % Vertical ray
+    elseif R.directionH(1) == 0 && R.directionH(2) ~= 0
+        % Horizontal ray
+        if R.directionH(2) > 0
+            R.aux.positionH_sft(2) = floor(R.aux.positionH_sft(2) + 1);
+        else
+            R.aux.positionH_sft(2) = ceil(R.aux.positionH_sft(2) - 1);
+        end
+
+    elseif R.directionH(1) ~= 0 && R.directionH(2) == 0
+        % Vertical ray
+        if R.directionH(1) > 0
+            R.aux.positionH_sft(1) = floor(R.aux.positionH_sft(1) + 1);
+        else
+            R.aux.positionH_sft(1) = ceil(R.aux.positionH_sft(1) - 1);
+        end
+
     else
-        ray.aux.u  = round(ray.aux.originH_sft(1) + ray.aux.lx/ray.aux.sx);
-        ray.aux.v  = ray.aux.originH_sft(2) + ray.aux.lx/ray.aux.sy;
-        ray.aux.lx = ray.aux.lx + abs(ray.aux.sx);
+        % General case
+        if R.aux.l(1) > R.aux.l(2)
+            xy = 2;
+            xy_sup = 1;
+        else
+            xy = 1;
+            xy_sup = 2;
+        end
+
+        R.aux.positionH_sft(1) = R.aux.closestGrid(1) + R.aux.l(xy) / R.aux.s(1);
+        R.aux.positionH_sft(2) = R.aux.closestGrid(2) + R.aux.l(xy) / R.aux.s(2);
+        R.aux.positionH_sft(xy) = round(R.aux.positionH_sft(xy));
+
+        if abs(R.aux.positionH_sft(xy_sup) - round(R.aux.positionH_sft(xy_sup))) < 1e-6
+            R.aux.positionH_sft(xy_sup) = round(R.aux.positionH_sft(xy_sup));
+            R.aux.closestGrid = R.aux.positionH_sft;
+            R.aux.l = [abs(R.aux.s(1)), abs(R.aux.s(2))];
+        else
+            R.aux.l(xy) = norm(R.aux.positionH_sft - R.aux.closestGrid) + abs(R.aux.s(xy));
+        end
+
     end
+
+    R.positionH = R.aux.positionH_sft - 0.5;
+    R.position(1:2) = R.positionH;
+
+    if R.directionH(1) >= 0
+        R.positionGrid(1) = ceil(R.aux.positionH_sft(1)) - 1;
+    else
+        R.positionGrid(1) = floor(R.aux.positionH_sft(1));
+    end
+
+    if R.directionH(2) >= 0
+        R.positionGrid(2) = ceil(R.aux.positionH_sft(2)) - 1;
+    else
+        R.positionGrid(2) = floor(R.aux.positionH_sft(2));
+    end
+
 end
 
 %% An older version of the function
