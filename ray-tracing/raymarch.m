@@ -1,9 +1,10 @@
 function R = raymarch(R)
+    R.status = 1; % Ray travelling
     % RAYMARCH marches the ray to the next grid
     if R.directionH(1) == 0 && R.directionH(2) == 0
         % Vertical ray
     elseif R.directionH(1) == 0 && R.directionH(2) ~= 0
-        % Horizontal ray
+        % Horizontal ray, x
         if R.directionH(2) > 0
             R.aux.positionH_sft(2) = floor(R.aux.positionH_sft(2) + 1);
         else
@@ -11,7 +12,7 @@ function R = raymarch(R)
         end
 
     elseif R.directionH(1) ~= 0 && R.directionH(2) == 0
-        % Vertical ray
+        % Horizontal ray, y
         if R.directionH(1) > 0
             R.aux.positionH_sft(1) = floor(R.aux.positionH_sft(1) + 1);
         else
@@ -32,7 +33,7 @@ function R = raymarch(R)
         R.aux.positionH_sft(2) = R.aux.closestGrid(2) + R.aux.l(xy) / R.aux.s(2);
         R.aux.positionH_sft(xy) = round(R.aux.positionH_sft(xy));
 
-        if abs(R.aux.positionH_sft(xy_sup) - round(R.aux.positionH_sft(xy_sup))) < 1e-6
+        if abs(R.aux.positionH_sft(xy_sup) - round(R.aux.positionH_sft(xy_sup))) < 1e-8
             R.aux.positionH_sft(xy_sup) = round(R.aux.positionH_sft(xy_sup));
             R.aux.closestGrid = R.aux.positionH_sft;
             R.aux.l = [abs(R.aux.s(1)), abs(R.aux.s(2))];
@@ -55,6 +56,13 @@ function R = raymarch(R)
         R.positionGrid(2) = ceil(R.aux.positionH_sft(2)) - 1;
     else
         R.positionGrid(2) = floor(R.aux.positionH_sft(2));
+    end
+
+    R.distance = norm(R.position - R.origin);
+    R.distanceH = norm(R.positionH - R.originH);
+
+    if length(R.position) == 3
+        R.position(3) = R.origin(3) + R.distanceH * R.aux.slope;
     end
 
 end

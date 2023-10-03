@@ -1,14 +1,22 @@
 function R = ray(origin, light_direction)
     % RAY creates a ray object
+    R.status = 0; % Ray at origin
     R.origin = origin;
     R.originH = R.origin(1:2);
     R.originGrid = round(R.origin);
-    R.direction = light_direction;
+    if norm(light_direction) ~=0
+        R.direction = light_direction / norm(light_direction);
+    else
+        R.direction = light_direction;
+    end
     R.directionH = R.direction(1:2);
 
     R.position = R.origin;
     R.positionH = R.position(1:2);
     R.positionGrid = R.originGrid;
+
+    R.distance = norm(R.position-R.origin);
+    R.distanceH = norm(R.positionH-R.originH);
 
     R.aux.originH_sft = R.originH + 0.5;
     R.aux.positionH_sft = R.originH + 0.5;
@@ -19,4 +27,10 @@ function R = ray(origin, light_direction)
     R.aux.l(2) = (sign(R.directionH(2)) - mod(R.aux.originH_sft(2), sign(R.directionH(2)))) ...
         * R.aux.s(2); % distance (from origin) to the closest horizontal gridline
     R.aux.closestGrid = R.aux.originH_sft;
+
+    if length(R.direction) == 3
+        R.aux.slope = R.direction(3) / norm(R.direction(1:2));
+    else
+        R.aux.slope = 0;
+    end
 end
