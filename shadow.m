@@ -1,214 +1,392 @@
-function Z_dp = shadow(Z, varargin)
-    % SHADOW calculate depth of shadow casted on a DEM
-    % Syntax
-    %   HS = hillshade(Z)
-    %   HS = hillshade(Z, "Dx", Dx, ...
-    %       "azimuth", az, "altitude", al, ...
-    %       "z_factor", ex_fac)
-    %   HS = hillshade(Z, "Dx", Dx, ...
-    %       "light_vector", lvector, ...
-    %       "z_factor", ex_fac)
-    % Input
-    %   Z: DEM matrix in metres. The matrix index should be in the (j,i) format, as of mdgrid
-    % Parameters
-    %   "Dx": Grid spacing in metres (default = 1)
-    %   "azimuth": Azimuth angle in degrees (default = 45)
-    %   "altitude": Altitude angle in degrees (default = 45)
-    %   "light_vector": Light direction vector (default = [0,0,0])
-    %   "z_factor": Vertical exaggeration factor (default = 1)
-    % Either "azimuth" and "altitude" or "light_vector" should be specified.
-    % Output
-    %   Z_dp: Depth of shadow casted on the DEM
+%% SHADOW
+% Calculate shadow casted on a DEM
+%
+% Syntax
+%   shadowMap = shadow(Z)
+%   shadowMap = shadow(Z, [azimuth, altitude])
+%   shadowMap = shadow(Z, [Lx, Ly, Lz])
+%   shadowMap = shadow(Z, __, h)
+%   shadowMap = shadow(Z, __, VE)
+%   shadowMap = shadow(Z, __, Name, Value)
+%   shadowMap = shadow('demo')
+%   [shadowMap, shadowDistMap] = shadow(__)
+%
+% Description
+%   shadowMap = shadow(Z)
+%       calculates what pixels are shadowed in the DEM Z with the default
+%       light azimuth and altitude of 45 degrees.
+%   shadowMap = shadow(Z, [azimuth, altitude])
+%       calculates what pixels are shadowed in the DEM Z with the light
+%       azimuth and altitude specified in the 1-by-2 vector
+%       [azimuth, altitude] in degrees.
+%   shadowMap = shadow(Z, [Lx, Ly, Lz])
+%       calculates what pixels are shadowed in the DEM Z with the light
+%       direction specified in the 1-by-3 vector L.
+%   shadowMap = shadow(Z, __, h)
+%       calculates what pixels are shadowed in the DEM Z with the mesh size
+%       h. The DEM is assumed to have the same mesh size in both
+%       dimensions.
+%   shadowMap = shadow(Z, __, VE)
+%       calculates what pixels are shadowed in the DEM Z with the vertical
+%       exaggeration factor VE.
+%   shadowMap = shadow('demo')
+%       displays the shadow map of the peaks function.
+%   shadow(__)
+%       displays the shadow map shadowMap.
+%   [shadowMap, shadowDistMap] = shadow(__)
+%       returns the shadow map shadowMap and the distance from the shadow
+%       shadowDistMap.
+%
+% Input Arguments
+%   Z - DEM matrix
+%   L - Light direction vector
+%       - 1-by-2 vector [azimuth, altitude] in degrees
+%       - 1-by-3 vector [Lx, Ly, Lz] of the (invert) light direction
+%       The default value is [-1, 1, 1].
+%   h - Mesh size
+%       The default value is 1.
+%   VE - Vertical exaggeration factor
+%       The default value is 1 (no exaggeration).
+%   HillShadeMap - Hillshade map
+%       If provided, the function will use the hillshade map to speed up
+% 		the calculation.
+%
+% Output Arguments
+%   shadowMap - Shadow map
+%   	A logical matrix of the same size as Z. The value is true if the
+%       pixel is shadowed.
+%   shadowDistMap - Distance from the shadow casting pixel
+%       A matrix of the same size as Z. The value is the distance from the
+%       shadow in the direction of the light. The value is NaN if the pixel
+%       is not shadowed.
+%
+% Authored by
+%   En-Chi Lee <williameclee@gmail.com>, 2024-06-28
 
-    % Assigning default parameters
-    Dx = 1;
-    az = 45;
-    al = 45;
-    lvector = [0, 0, 0];
-    ex_fac = 1;
-    algorithm = "dirty";
-
-    % Input parameters
+function varargout = shadow(Z, varargin)
+    %% Initilisation
+    % Parse the input
     p = inputParser;
-    addRequired(p, "Z"); % DEM matrix
-    addOptional(p, "Dx", Dx);
-    addOptional(p, "azimuth", az);
-    addOptional(p, "altitude", al);
-    addOptional(p, "light_vector", lvector);
-    addOptional(p, "z_factor", ex_fac);
-    addOptional(p, "quality", algorithm);
+    addRequired(p, 'DEM', ...
+        @(x) (isnumeric(x) && ismatrix(x)) || ...
+        (ischar(x) && strcmp(x, 'demo')));
+    addOptional(p, 'LightVector', [-1, 1, 1], ...
+        @(x) isvector(x) && (length(x) == 2 || length(x) == 3));
+    addOptional(p, 'MeshSize', 1, ...
+        @(x) isscalar(x) && isnumeric(x) && (x > 0));
+    addOptional(p, 'ZFactor', 1, ...
+        @(x) isscalar(x) && isnumeric(x) && (x > 0));
+    addParameter(p, 'HillShadeMap', [], ...
+        @(x) isnumeric(x) && ismatrix(x));
     parse(p, Z, varargin{:});
-    Z = p.Results.Z;
-    Dx = p.Results.Dx;
-    az = p.Results.azimuth;
-    al = p.Results.altitude;
-    lvector = p.Results.light_vector;
-    ex_fac = p.Results.z_factor;
-    algorithm = p.Results.quality;
+    Z = p.Results.DEM;
+    light = p.Results.LightVector;
+    meshSize = p.Results.MeshSize;
+    zFactor = p.Results.ZFactor;
+    hillshadeMap = p.Results.HillShadeMap;
 
-    % Parameters cleaning
-    Z_ex = Z * ex_fac / Dx;
+    % Check for demo mode
+    if strcmp(Z, 'demo')
+        [isShadowed, distFromShadow] = demo;
 
-    if norm(lvector(:)) ~= 0
-        al = asind(lvector(3) / norm(lvector));
-        az = atan2d(lvector(2), lvector(1));
+        if nargout == 0
+
+            return
+        end
+
+        varargout = {isShadowed, distFromShadow};
+        return
+
     end
 
-    % Prepare and rotate DEM
-    [Z_exp, I_exp, J_exp] = shadow_rotatefwd(Z_ex, az, algorithm);
+    % Variable cleaning
+    % Format the light direction to vector form
+    if length(light) == 2
+        light = azald2vec(light(1), light(2));
+    else
+        light = light / norm(light(:));
+    end
 
-    Z_slp = Z_exp - tand(al) * J_exp;
-    Z_max = cummax(Z_slp, 1, "reverse", "omitnan");
-    Z_dpth = Z_slp - Z_max;
+    lightH = light(1:2);
+    lightH = lightH / norm(lightH(:));
 
-    Z_dp = shadow_rotatebwd(I_exp, J_exp, Z_dpth, az, size(Z), algorithm);
+    % Preallocation
+    mapSize = size(Z);
+    nPixel = prod(mapSize);
+
+    if isempty(hillshadeMap)
+        hillshadeMap = zeros([nPixel, 1]);
+        hillshadeMap(:) = hillshade(Z, light);
+    else
+        hillshadeMap = hillshadeMap(:);
+        hillshadeMap = max(0, hillshadeMap);
+    end
+
+    isShadowed = false([nPixel, 1]);
+    isCaster = false([nPixel, 1]);
+
+    if nargout >= 2
+        distFromShadow = nan([nPixel, 1]);
+        zOfCaster = nan([nPixel, 1]);
+    end
+
+    %% Rescale and rotate coordinate to light direction
+    Z = Z * zFactor / meshSize;
+    [I, J] = meshgrid(1:mapSize(2), 1:mapSize(1));
+    [I, J, Z] = rotateandtiltmap(I, J, Z, light);
+
+    %% Find shadow-casting pixels
+    isShadowed(:) = hillshadeMap(:) <= 0;
+
+    [isCaster(:), nCaster] = findshadowcasters(light, Z);
+    IJZcasters = [I(isCaster), J(isCaster), Z(isCaster)];
+
+    [I, J, Z, isShadowed, isCaster, sortId] = ...
+        sortpixels(I, J, Z, isShadowed, isCaster);
+
+    % Make an educated guess on where are the pixels that might be shadowed
+    beamWidth = dot([1/2, 1/2] .* sign(lightH), lightH);
+
+    % Normalise the coordinates to the range of [0, nBin]
+    [J, IJZcasters, beamWidth, nBin] = ...
+        normalisetobin(J, IJZcasters, beamWidth);
+
+    %% Iterating through shadow casters
+    binBounds = findbinbounds(J, nBin);
+
+    for iCaster = 1:nCaster
+
+        if isShadowed(isCaster(iCaster))
+            continue
+        end
+
+        IJZcaster = IJZcasters(iCaster, :);
+
+        binBound = binBounds(floor(IJZcaster(2)) + 1, :);
+        ijCasted = binBound(1):binBound(2);
+        % Find pixels that can be shadowed by the current shadow caster
+        ijCasted = ijCasted( ...
+            abs(J(ijCasted) - IJZcaster(2)) <= beamWidth);
+        ijCasted = ijCasted( ...
+            I(ijCasted) > IJZcaster(1));
+        % Find if the pixels are actually shadowed
+        ijCasted = ijCasted( ...
+            Z(ijCasted) < IJZcaster(3));
+        isShadowed(ijCasted) = true;
+
+        if nargout < 2
+            continue
+        end
+
+        % First-order approximation: ignore the y difference
+        zOfCaster(ijCasted) = max(IJZcaster(3), zOfCaster(ijCasted));
+        distFromShadow(ijCasted(IJZcaster(3) == zOfCaster(ijCasted))) = ...
+            IJZcasters(iCaster, 1);
+    end
+
+    % Unsort the pixels
+    distFromShadow = (I - distFromShadow) * meshSize;
+
+    [isShadowed, distFromShadow] = ...
+        unsortpixels(isShadowed, distFromShadow, sortId, mapSize);
+
+    %% Output
+    if nargout == 0
+        return
+    end
+
+    varargout = {isShadowed, distFromShadow};
+
 end
 
-%% Supplementary functions
-% Rotate DEM
-function [Z_exp, I_exp, J_exp] = shadow_rotatefwd(Z, az, algorithm)
-    Z_pad = padarray(Z, [1, 1], 'replicate');
-    [I_pad, J_pad] = meshgrid(1:size(Z_pad, 2), 1:size(Z_pad, 1));
-    N_pad = size(Z_pad, 2);
-    M_pad = size(Z_pad, 1);
-    RM = [cosd(az), -sind(az); sind(az), cosd(az)];
-    C1_rot = RM * [1; 1];
-    C2_rot = RM * [1; M_pad];
-    C3_rot = RM * [N_pad; 1];
-    C4_rot = RM * [N_pad; M_pad];
+%% Subfunctions
 
-    Cx_rot = [C1_rot(1), C2_rot(1), C3_rot(1), C4_rot(1)];
-    Cy_rot = [C1_rot(2), C2_rot(2), C3_rot(2), C4_rot(2)];
-    [I_exp, J_exp] = meshgrid(floor(min(Cx_rot)):ceil(max(Cx_rot)), ...
-        floor(min(Cy_rot)):ceil(max(Cy_rot)));
+% Rotate and tilt the map to the light direction
+function [Irotated, Jrotated, Ztilted] = ...
+        rotateandtiltmap(I, J, Z, lightVec)
+    % Make sure the transformation functions are found in the path
+    addpath(fullfile(fileparts(mfilename('fullpath')), ...
+    'unit-sphere-transformations'))
+    % Process the light vector
+    [lightAzimuth, lightAlt] = vec2azal(lightVec);
 
-    IJ_rot = RM * [I_pad(:)'; J_pad(:)'];
-    I_rot = IJ_rot(1, :).';
-    J_rot = IJ_rot(2, :).';
+    % Rotate the coordinate system
+    angOfRotation = lightAzimuth + pi / 2;
+    RotationMatrix = ...
+        [cos(angOfRotation), -sin(angOfRotation); ...
+         sin(angOfRotation), cos(angOfRotation)];
+    IJ = [I(:), J(:)];
+    IJrotated = (RotationMatrix * IJ')';
+    Irotated = reshape(IJrotated(:, 1), size(I));
+    Jrotated = reshape(IJrotated(:, 2), size(J));
 
-    clear IJ_rot I_pad J_pad C1_rot C2_rot C3_rot C4_rot
+    % Tilt the map
+    Ztilted = Z + Irotated * tan(lightAlt);
+end
 
-    % Interpolate DEM
-    switch algorithm
-        case "high"
-            Z_exp = griddata(I_rot, J_rot, Z_pad(:), I_exp, J_exp);
-        case "dirty"
-            I_rot = reshape(I_rot, size(Z_pad));
-            J_rot = reshape(J_rot, size(Z_pad));
-            Z_exp = zeros(size(I_exp));
-            W = zeros(size(Z_exp));
-            
-            % offset between rotated and expended grids
-            ifst = 1 - floor(min(Cx_rot));
-            jfst = 1 - floor(min(Cy_rot));
+% Find which pixels are potential shadow casters
+function [isCaster, nCaster] = findshadowcasters(light, Z)
+    %% Initialisation and preallocation
+    % Make sure the light vector is a 2D unit vector
+    light = light(1:2);
+    light = light / norm(light(:));
 
-            Ifl = floor(I_rot);
-            Jfl = floor(J_rot);
-            T = I_rot - Ifl;
-            S = J_rot - Jfl;
-            Ifl = Ifl + ifst;
-            Jfl = Jfl + jfst;
-            Z_exp(sub2ind(size(Z_exp), Jfl, Ifl)) ...
-                = Z_exp(sub2ind(size(Z_exp), Jfl, Ifl)) ...
-                + (1 - T) .* (1 - S) .* Z_pad;
-            Z_exp(sub2ind(size(Z_exp), Jfl + 1, Ifl)) ...
-                = Z_exp(sub2ind(size(Z_exp), Jfl + 1, Ifl)) ...
-                + (1 - T) .* S .* Z_pad;
-            Z_exp(sub2ind(size(Z_exp), Jfl, Ifl + 1)) ...
-                = Z_exp(sub2ind(size(Z_exp), Jfl, Ifl + 1)) ...
-                + T .* (1 - S) .* Z_pad;
-            Z_exp(sub2ind(size(Z_exp), Jfl + 1, Ifl + 1)) ...
-                = Z_exp(sub2ind(size(Z_exp), Jfl + 1, Ifl + 1)) ...
-                + T .* S .* Z_pad;
-            W(sub2ind(size(Z_exp), Jfl, Ifl)) ...
-                = W(sub2ind(size(Z_exp), Jfl, Ifl)) ...
-                + (1 - T) .* (1 - S);
-            W(sub2ind(size(Z_exp), Jfl + 1, Ifl)) ...
-                = W(sub2ind(size(Z_exp), Jfl + 1, Ifl)) ...
-                + (1 - T) .* S;
-            W(sub2ind(size(Z_exp), Jfl, Ifl + 1)) ...
-                = W(sub2ind(size(Z_exp), Jfl, Ifl + 1)) ...
-                + T .* (1 - S);
-            W(sub2ind(size(Z_exp), Jfl + 1, Ifl + 1)) ...
-                = W(sub2ind(size(Z_exp), Jfl + 1, Ifl + 1)) ...
-                + T .* S;
+    % Preallocate the output
+    slopeMap = zeros(size(Z));
+    isCaster = false(size(Z));
+    gradientMapI = zeros([numel(Z), 1]);
+    gradientMapJ = zeros([numel(Z), 1]);
 
-            Z_exp(W ~= 0) = Z_exp(W ~= 0) ./ W(W ~= 0);
-            Z_exp(W == 0) = nan;
+    %% Find the slope of Z in the direction of the light direction
+    % Calculate the gradient of Z
+    [gradientMapI(:), gradientMapJ(:)] = gradient(Z);
+    % Project the gradient to the light direction
+    slopeMap(:) = [gradientMapI, gradientMapJ] * -light(:);
+    % Find the sign of the slope
+    slopeMap = sign(slopeMap);
+
+    clear gradientMapI gradientMapJ
+
+    %% Find the edges of the zero-slope region
+    % TODO: Is there an economic way to eliminate redundant points?
+    if light(1) > 0 % light from left
+        isCaster(:, 2:end) = diff(slopeMap, 1, 2) > 0 ...
+            | isCaster(:, 2:end);
+    elseif light(1) < 0 % light from right
+        isCaster(:, 1:end - 1) = diff(slopeMap, 1, 2) < 0 ...
+            | isCaster(:, 1:end - 1);
     end
+
+    if light(2) > 0 % light from top
+        isCaster(2:end, :) = diff(slopeMap, 1, 1) > 0 ...
+            | isCaster(2:end, :);
+    elseif light(2) < 0 % light from bottom
+        isCaster(1:end - 1, :) = diff(slopeMap, 1, 1) < 0 ...
+            | isCaster(1:end - 1, :);
+    end
+
+    if light(1) > 0 && light(2) > 0 % light from quadrant 1
+        isCaster(2:end, 2:end) = ...
+            slopeMap(2:end, 2:end) > slopeMap(1:end - 1, 1:end - 1) ...
+            | isCaster(2:end, 2:end);
+    elseif light(1) < 0 && light(2) > 0 % light from quadrant 2
+        isCaster(2:end, 1:end - 1) = ...
+            slopeMap(2:end, 1:end - 1) > slopeMap(1:end - 1, 2:end) ...
+            | isCaster(2:end, 1:end - 1);
+    elseif light(1) < 0 && light(2) < 0 % light from quadrant 3
+        isCaster(1:end - 1, 1:end - 1) = ...
+            slopeMap(1:end - 1, 1:end - 1) > slopeMap(2:end, 2:end) ...
+            | isCaster(1:end - 1, 1:end - 1);
+    elseif light(1) > 0 && light(2) < 0 % light from quadrant 4
+        isCaster(1:end - 1, 2:end) = ...
+            slopeMap(1:end - 1, 2:end) > slopeMap(2:end, 1:end - 1) ...
+            | isCaster(1:end - 1, 2:end);
+    end
+
+    %% Add the boundaries
+    if light(1) > 0
+        isCaster(:, end) = true;
+    elseif light(1) < 0
+        isCaster(:, 1) = true;
+    end
+
+    if light(2) > 0
+        isCaster(end, :) = true;
+    elseif light(2) < 0
+        isCaster(1, :) = true;
+    end
+
+    nCaster = sum(isCaster(:));
 
 end
 
-% Rotate DEM back
-function Z = shadow_rotatebwd(I_exp, J_exp, Z_exp, az, MN, algorithm)
-    N = MN(2);
-    M = MN(1);
-    RM_b = [cosd(-az), -sind(-az); sind(-az), cosd(-az)];
+% Sort the pixels to make the search more efficient
+function [I, J, Z, shadow, caster, sortId] = ...
+        sortpixels(I, J, Z, shadow, caster)
+    [IJZ, sortId] = sortrows( ...
+        [I(:), J(:), Z(:), shadow(:)], [2, 1]);
 
-    I_exp = I_exp(:);
-    J_exp = J_exp(:);
-    Z_exp = Z_exp(:);
-    I_exp = I_exp(~isnan(Z_exp));
-    J_exp = J_exp(~isnan(Z_exp));
-    Z_exp = Z_exp(~isnan(Z_exp));
+    I = IJZ(:, 1);
+    J = IJZ(:, 2);
+    Z = IJZ(:, 3);
+    shadow = logical(IJZ(:, 4));
+    caster = caster(sortId);
+end
 
-    IJ_rotb = RM_b * [I_exp'; J_exp'];
-    I_exp = IJ_rotb(1, :).';
-    J_exp = IJ_rotb(2, :).';
+% Reverse the sorting by sortpixels
+function [shadow, dist] = ...
+        unsortpixels(shadow, dist, sortId, mapSize)
+    shadow(sortId) = shadow;
+    dist(sortId) = dist;
 
-    clear IJ_rotb
+    shadow = reshape(shadow, mapSize);
+    dist = reshape(dist, mapSize);
+end
 
-    % Interpolate DEM
-    switch algorithm
-        case "high"
-            [I, J] = meshgrid(1:N, 1:M);
-            Z = griddata(I_exp - 1, J_exp - 1, Z_exp, I, J);
-        case "dirty"
-            Z = zeros(MN);
-            W = zeros(MN);
+% Normalise the J coordinate to the range of [0, nBin]
+function [J, IJZ, beamWidth, nBin] = ...
+        normalisetobin(J, IJZ, beamWidth)
+    % Randomly chosen numbers
+    nBinScale = 2 ^ 3;
+    nBinMax = 2 ^ 12;
+    % Normalise the coordinates to the range of [0, nBin]
+    Jlim = [min(J), max(J)];
+    nBin = min(floor(diff(Jlim) / beamWidth / nBinScale), nBinMax);
 
-            Ifl = floor(I_exp) - 1;
-            Jfl = floor(J_exp) - 1;
-            T = (I_exp - 1) - Ifl;
-            S = (J_exp - 1) - Jfl;
+    scalingFactor = nBin / diff(Jlim);
 
-            BL = (Ifl >= 1) & (Jfl >= 1) ...
-                & (Ifl <= N) & (Jfl <= M);
-            BR = (Ifl + 1 >= 1) & (Jfl >= 1) ...
-                & (Ifl + 1 <= N) & (Jfl <= M);
-            TL = (Ifl >= 1) & (Jfl + 1 >= 1) ...
-                & (Ifl <= N) & (Jfl + 1 <= M);
-            TR = (Ifl + 1 >= 1) & (Jfl + 1 >= 1) ...
-                & (Ifl + 1 <= N) & (Jfl + 1 <= M);
+    J = (J - Jlim(1)) * scalingFactor;
+    J = min(nBin, max(0, J));
 
-            Z(sub2ind(size(Z), Jfl(BL), Ifl(BL))) ...
-                = Z(sub2ind(size(Z), Jfl(BL), Ifl(BL))) ...
-                + (1 - T(BL)) .* (1 - S(BL)) .* Z_exp(BL);
-            Z(sub2ind(size(Z), Jfl(TL) + 1, Ifl(TL))) ...
-                = Z(sub2ind(size(Z), Jfl(TL) + 1, Ifl(TL))) ...
-                + (1 - T(TL)) .* S(TL) .* Z_exp(TL);
-            Z(sub2ind(size(Z), Jfl(BR), Ifl(BR) + 1)) ...
-                = Z(sub2ind(size(Z), Jfl(BR), Ifl(BR) + 1)) ...
-                + T(BR) .* (1 - S(BR)) .* Z_exp(BR);
-            Z(sub2ind(size(Z), Jfl(TR) + 1, Ifl(TR) + 1)) ...
-                = Z(sub2ind(size(Z), Jfl(TR) + 1, Ifl(TR) + 1)) ...
-                + T(TR) .* S(TR) .* Z_exp(TR);
+    IJZ(:, 2) = (IJZ(:, 2) - Jlim(1)) * scalingFactor;
+    IJZ(:, 2) = min(nBin, max(0, IJZ(:, 2)));
 
-            W(sub2ind(size(Z), Jfl(BL), Ifl(BL))) ...
-                = W(sub2ind(size(Z), Jfl(BL), Ifl(BL))) ...
-                + (1 - T(BL)) .* (1 - S(BL));
-            W(sub2ind(size(Z), Jfl(TL) + 1, Ifl(TL))) ...
-                = W(sub2ind(size(Z), Jfl(TL) + 1, Ifl(TL))) ...
-                + (1 - T(TL)) .* S(TL);
-            W(sub2ind(size(Z), Jfl(BR), Ifl(BR) + 1)) ...
-                = W(sub2ind(size(Z), Jfl(BR), Ifl(BR) + 1)) ...
-                + T(BR) .* (1 - S(BR));
-            W(sub2ind(size(Z), Jfl(TR) + 1, Ifl(TR) + 1)) ...
-                = W(sub2ind(size(Z), Jfl(TR) + 1, Ifl(TR) + 1)) ...
-                + T(TR) .* S(TR);
+    beamWidth = beamWidth * scalingFactor;
+end
 
-            Z(W ~= 0) = Z(W ~= 0) ./ W(W ~= 0);
-            Z(W == 0) = nan;
+% Make educated guess on the pixels that might be shadowed
+function binBounds = findbinbounds(J, nBin)
+    binBounds = zeros([nBin + 1, 2]);
+
+    J = uint16(floor(J));
+
+    binBounds(end, 2) = length(J);
+
+    % Looping backwards to make search range smaller
+    for iBinEdge = nBin - 1:-1:0
+        binBounds(iBinEdge + 1, 2) = ...
+            find(J(1:binBounds(iBinEdge + 2, 2)) <= iBinEdge + 2, ...
+            1, 'last');
+
+        if iBinEdge <= 2
+            binBounds(iBinEdge + 1, 1) = find( ...
+                J >= iBinEdge - 1, ...
+                1, 'first');
+        end
+
     end
 
+    binBounds(4:end, 1) = binBounds(1:end - 3, 2) + 1;
+end
+
+%% Demo
+function [isShadowed, distFromShadow] = demo
+    z = peaks(2 ^ 9) * 20;
+    light = [-1, 1, 0.5];
+    [hillshadeMap, ~, ~] = ...
+        hillshade(z, light, 'ShadingMethod', 'clamped');
+    [isShadowed, distFromShadow] = shadow(z, light, ...
+        'HillShadeMap', hillshadeMap);
+
+    isShadowed = imgaussfilt(double(isShadowed), 3);
+
+    figure('Name', ['Demo of ', upper(mfilename)])
+	% Blend the shadow map with the hillshade map
+    surf(z, hillshadeMap .* (1 - isShadowed), ...
+        'EdgeColor', 'none');
+
+    colormap(gray);
+    axis equal
+    axis tight
+    axis off
 end

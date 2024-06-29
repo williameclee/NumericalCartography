@@ -1,0 +1,14 @@
+# Image files
+*.png
+*.jpg
+*.tif
+
+# Test files
+*test*.m
+*demo*.m
+
+# Cache files
+*.asv
+
+# Untracked files
+ray-tracing/
