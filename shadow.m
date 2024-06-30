@@ -1,5 +1,5 @@
 %% SHADOW
-% Calculate shadow casted on a DEM
+% Calculates shadow casted on a DEM.
 %
 % Syntax
 %   shadowMap = shadow(Z)
@@ -47,6 +47,8 @@
 %       The default value is 1.
 %   VE - Vertical exaggeration factor
 %       The default value is 1 (no exaggeration).
+%   IndexScheme - Indexing scheme
+%       The default value is 'meshgrid'. The other option is 'ndgrid'.
 %   HillShadeMap - Hillshade map
 %       If provided, the function will use the hillshade map to speed up
 % 		the calculation.
@@ -62,6 +64,8 @@
 %
 % Authored by
 %   En-Chi Lee <williameclee@gmail.com>, 2024-06-28
+% Last modified by
+%   En-Chi Lee <williameclee@gmail.com>, 2024-06-30
 
 function varargout = shadow(Z, varargin)
     %% Initilisation
@@ -76,6 +80,8 @@ function varargout = shadow(Z, varargin)
         @(x) isscalar(x) && isnumeric(x) && (x > 0));
     addOptional(p, 'ZFactor', 1, ...
         @(x) isscalar(x) && isnumeric(x) && (x > 0));
+    addParameter(p, 'IndexScheme', 'meshgrid', ...
+        @(x) ischar(x) && ismember(x, {'meshgrid', 'ndgrid'}));
     addParameter(p, 'HillShadeMap', [], ...
         @(x) isnumeric(x) && ismatrix(x));
     parse(p, Z, varargin{:});
@@ -83,7 +89,13 @@ function varargout = shadow(Z, varargin)
     light = p.Results.LightVector;
     meshSize = p.Results.MeshSize;
     zFactor = p.Results.ZFactor;
+    indexScheme = p.Results.IndexScheme;
     hillshadeMap = p.Results.HillShadeMap;
+
+    % More input checking
+    if ~isempty(hillshadeMap) && ~isequal(size(hillshadeMap), size(Z))
+        error('The size of the hillshade map must be the same as the DEM.')
+    end
 
     % Check for demo mode
     if strcmp(Z, 'demo')
@@ -99,28 +111,28 @@ function varargout = shadow(Z, varargin)
 
     end
 
-    % Variable cleaning
+    %% Variable formatting
+    Z = Z * zFactor / meshSize;
+
+    if strcmp(indexScheme, 'ndgrid')
+        Z = Z';
+    end
+
     % Format the light direction to vector form
     if length(light) == 2
+        % Convert azimuth and altitude to vector
         light = azald2vec(light(1), light(2));
     else
+        % Make sure the light vector is a unit vector
         light = light / norm(light(:));
     end
 
     lightH = light(1:2);
     lightH = lightH / norm(lightH(:));
 
-    % Preallocation
+    %% Preallocation
     mapSize = size(Z);
     nPixel = prod(mapSize);
-
-    if isempty(hillshadeMap)
-        hillshadeMap = zeros([nPixel, 1]);
-        hillshadeMap(:) = hillshade(Z, light);
-    else
-        hillshadeMap = hillshadeMap(:);
-        hillshadeMap = max(0, hillshadeMap);
-    end
 
     isShadowed = false([nPixel, 1]);
     isCaster = false([nPixel, 1]);
@@ -130,8 +142,15 @@ function varargout = shadow(Z, varargin)
         zOfCaster = nan([nPixel, 1]);
     end
 
+    if isempty(hillshadeMap)
+        hillshadeMap = zeros([nPixel, 1]);
+        hillshadeMap(:) = hillshade(Z, light);
+    else
+        hillshadeMap = hillshadeMap(:);
+        hillshadeMap = max(0, hillshadeMap);
+    end
+
     %% Rescale and rotate coordinate to light direction
-    Z = Z * zFactor / meshSize;
     [I, J] = meshgrid(1:mapSize(2), 1:mapSize(1));
     [I, J, Z] = rotateandtiltmap(I, J, Z, light);
 
@@ -185,17 +204,33 @@ function varargout = shadow(Z, varargin)
     end
 
     % Unsort the pixels
-    distFromShadow = (I - distFromShadow) * meshSize;
-
-    [isShadowed, distFromShadow] = ...
-        unsortpixels(isShadowed, distFromShadow, sortId, mapSize);
+    if nargout >= 2
+        distFromShadow = (I - distFromShadow) * meshSize;
+        [isShadowed, distFromShadow] = ...
+            unsortpixels(isShadowed, distFromShadow, sortId, mapSize);
+    else
+        isShadowed = unsortpixels(isShadowed, [], sortId, mapSize);
+    end
 
     %% Output
     if nargout == 0
         return
     end
 
-    varargout = {isShadowed, distFromShadow};
+    if strcmp(indexScheme, 'ndgrid')
+        isShadowed = isShadowed';
+
+        if nargout >= 2
+            distFromShadow = distFromShadow';
+        end
+
+    end
+
+    if nargout == 1
+        varargout = {isShadowed};
+    else
+        varargout = {isShadowed, distFromShadow};
+    end
 
 end
 
@@ -317,10 +352,15 @@ end
 function [shadow, dist] = ...
         unsortpixels(shadow, dist, sortId, mapSize)
     shadow(sortId) = shadow;
-    dist(sortId) = dist;
-
     shadow = reshape(shadow, mapSize);
-    dist = reshape(dist, mapSize);
+
+    if ~isempty(dist)
+        dist(sortId) = dist;
+        dist = reshape(dist, mapSize);
+    else
+        dist = [];
+    end
+
 end
 
 % Normalise the J coordinate to the range of [0, nBin]
@@ -371,18 +411,22 @@ end
 
 %% Demo
 function [isShadowed, distFromShadow] = demo
-    z = peaks(2 ^ 9) * 20;
-    light = [-1, 1, 0.5];
+    % Create a simple DEM
+    [Z, X, Y, h, light] = sampledem2;
+
+    % Calculate the hillshade and shadow map
     [hillshadeMap, ~, ~] = ...
-        hillshade(z, light, 'ShadingMethod', 'clamped');
-    [isShadowed, distFromShadow] = shadow(z, light, ...
+        hillshade(Z, light, h, 'ShadingMethod', 'clamped');
+    [isShadowed, distFromShadow] = shadow(Z, light, h, ...
         'HillShadeMap', hillshadeMap);
 
+    % Blur the shadow
     isShadowed = imgaussfilt(double(isShadowed), 3);
 
+    % Display the shadow map
     figure('Name', ['Demo of ', upper(mfilename)])
-	% Blend the shadow map with the hillshade map
-    surf(z, hillshadeMap .* (1 - isShadowed), ...
+    % Blend the shadow map with the hillshade map
+    surf(X, Y, Z, hillshadeMap .* (1 - isShadowed), ...
         'EdgeColor', 'none');
 
     colormap(gray);

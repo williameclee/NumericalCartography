@@ -1,7 +1,6 @@
 # Image files
 *.png
 *.jpg
-*.tif
 
 # Test files
 *test*.m

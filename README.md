@@ -14,12 +14,15 @@ It will generate a simple 3D terrain model with a light source and a shadow.
 
 ## Functions
 
-- `hillshade`: Compute the hill shade of a 3D terrain model with various Lambert models.
-- `shadow`: Compute the shadow of a 3D terrain model with a light source.
+- `grainynoise`: Adds a grainy noise to a normal map.
+- `hillshade`: Computes the hill shade of a 3D terrain model with various Lambert models.
+- `normal`: Computes the normal vector of a 3D terrain model.
+- `sampledem` and `sampledem2`: Generate sample 3D terrain models.
+- `shadow`: Computse the shadow of a 3D terrain model with a light source.
 
 ## Contributors
 
 - [En-Chi Lee](mailto:williameclee@gmail.com)
 
 Last modified by:
-[En-Chi Lee](mailto:williameclee@gmail.com) 2024-06-28
+[En-Chi Lee](mailto:williameclee@gmail.com) 2024-06-30

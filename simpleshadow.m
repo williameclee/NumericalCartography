@@ -1,11 +1,11 @@
 %% SIMPLESHADOW
-% Compute shadow depth map from a Digital Elevation Model (DEM).
+% Computes shadow depth map from a Digital Elevation Model (DEM).
 % The algorithm is naive and should no longer be used.
 %
 % See also: SHADOW
 %
 % Last modified by
-%   En-Chi Lee <williameclee@gmail.com>, 2024-06-28
+%   En-Chi Lee <williameclee@gmail.com>, 2024-06-29
 
 function shadowDepthMap = simpleshadow(Z, varargin)
     %% Initialisation
