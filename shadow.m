@@ -3,8 +3,7 @@
 %
 % Syntax
 %   shadowMap = shadow(Z)
-%   shadowMap = shadow(Z, [azimuth, altitude])
-%   shadowMap = shadow(Z, [Lx, Ly, Lz])
+%   shadowMap = shadow(Z, L)
 %   shadowMap = shadow(Z, __, h)
 %   shadowMap = shadow(Z, __, VE)
 %   shadowMap = shadow(Z, __, Name, Value)
@@ -15,13 +14,9 @@
 %   shadowMap = shadow(Z)
 %       calculates what pixels are shadowed in the DEM Z with the default
 %       light azimuth and altitude of 45 degrees.
-%   shadowMap = shadow(Z, [azimuth, altitude])
+%   shadowMap = shadow(Z, L)
 %       calculates what pixels are shadowed in the DEM Z with the light
-%       azimuth and altitude specified in the 1-by-2 vector
-%       [azimuth, altitude] in degrees.
-%   shadowMap = shadow(Z, [Lx, Ly, Lz])
-%       calculates what pixels are shadowed in the DEM Z with the light
-%       direction specified in the 1-by-3 vector L.
+%       source.
 %   shadowMap = shadow(Z, __, h)
 %       calculates what pixels are shadowed in the DEM Z with the mesh size
 %       h. The DEM is assumed to have the same mesh size in both
@@ -39,9 +34,10 @@
 %
 % Input Arguments
 %   Z - DEM matrix
-%   L - Light direction vector
-%       - 1-by-2 vector [azimuth, altitude] in degrees
-%       - 1-by-3 vector [Lx, Ly, Lz] of the (invert) light direction
+%   L - Light source
+%       - LightSource object.
+%       - 1-by-2 vector [azimuth, altitude] in degrees.
+%       - 1-by-3 vector [Lx, Ly, Lz] of the (invert) light direction.
 %       The default value is [-1, 1, 1].
 %   h - Mesh size
 %       The default value is 1.
@@ -62,20 +58,28 @@
 %       shadow in the direction of the light. The value is NaN if the pixel
 %       is not shadowed.
 %
+% See also
+%   HILLSHADE, LIGHTSOURCE
+%
 % Authored by
 %   En-Chi Lee <williameclee@gmail.com>, 2024-06-28
 % Last modified by
-%   En-Chi Lee <williameclee@gmail.com>, 2024-06-30
+%   En-Chi Lee <williameclee@gmail.com>, 2024-07-01
 
 function varargout = shadow(Z, varargin)
     %% Initilisation
+    % Make sure subfunctions in the path
+    addpath(fullfile(fileparts(mfilename('fullpath')), ...
+    'aux'));
+
     % Parse the input
     p = inputParser;
     addRequired(p, 'DEM', ...
         @(x) (isnumeric(x) && ismatrix(x)) || ...
         (ischar(x) && strcmp(x, 'demo')));
-    addOptional(p, 'LightVector', [-1, 1, 1], ...
-        @(x) isvector(x) && (length(x) == 2 || length(x) == 3));
+    addOptional(p, 'Light', [-1, 1, 1], ...
+        @(x) (isvector(x) && (length(x) == 2 || length(x) == 3)) ...
+        || isa(x, 'LightSource'));
     addOptional(p, 'MeshSize', 1, ...
         @(x) isscalar(x) && isnumeric(x) && (x > 0));
     addOptional(p, 'ZFactor', 1, ...
@@ -86,7 +90,7 @@ function varargout = shadow(Z, varargin)
         @(x) isnumeric(x) && ismatrix(x));
     parse(p, Z, varargin{:});
     Z = p.Results.DEM;
-    light = p.Results.LightVector;
+    light = p.Results.Light;
     meshSize = p.Results.MeshSize;
     zFactor = p.Results.ZFactor;
     indexScheme = p.Results.IndexScheme;
@@ -112,23 +116,17 @@ function varargout = shadow(Z, varargin)
     end
 
     %% Variable formatting
-    Z = Z * zFactor / meshSize;
-
+    % Format the indexing scheme
     if strcmp(indexScheme, 'ndgrid')
         Z = Z';
     end
 
     % Format the light direction to vector form
-    if length(light) == 2
-        % Convert azimuth and altitude to vector
-        light = azald2vec(light(1), light(2));
-    else
-        % Make sure the light vector is a unit vector
-        light = light / norm(light(:));
+    if ~isa(light, 'LightSource')
+        light = LightSource('parallel', light);
     end
 
-    lightH = light(1:2);
-    lightH = lightH / norm(lightH(:));
+    Z = Z * zFactor / meshSize;
 
     %% Preallocation
     mapSize = size(Z);
@@ -144,7 +142,7 @@ function varargout = shadow(Z, varargin)
 
     if isempty(hillshadeMap)
         hillshadeMap = zeros([nPixel, 1]);
-        hillshadeMap(:) = hillshade(Z, light);
+        hillshadeMap(:) = hillshade(Z, light.Direction);
     else
         hillshadeMap = hillshadeMap(:);
         hillshadeMap = max(0, hillshadeMap);
@@ -164,7 +162,7 @@ function varargout = shadow(Z, varargin)
         sortpixels(I, J, Z, isShadowed, isCaster);
 
     % Make an educated guess on where are the pixels that might be shadowed
-    beamWidth = dot([1/2, 1/2] .* sign(lightH), lightH);
+    beamWidth = dot([1/2, 1/2] .* sign(light.HorizontalDirection), light.HorizontalDirection);
 
     % Normalise the coordinates to the range of [0, nBin]
     [J, IJZcasters, beamWidth, nBin] = ...
@@ -184,13 +182,10 @@ function varargout = shadow(Z, varargin)
         binBound = binBounds(floor(IJZcaster(2)) + 1, :);
         ijCasted = binBound(1):binBound(2);
         % Find pixels that can be shadowed by the current shadow caster
-        ijCasted = ijCasted( ...
-            abs(J(ijCasted) - IJZcaster(2)) <= beamWidth);
-        ijCasted = ijCasted( ...
-            I(ijCasted) > IJZcaster(1));
+        ijCasted = ijCasted(abs(J(ijCasted) - IJZcaster(2)) <= beamWidth);
+        ijCasted = ijCasted(I(ijCasted) > IJZcaster(1));
         % Find if the pixels are actually shadowed
-        ijCasted = ijCasted( ...
-            Z(ijCasted) < IJZcaster(3));
+        ijCasted = ijCasted(Z(ijCasted) < IJZcaster(3));
         isShadowed(ijCasted) = true;
 
         if nargout < 2
@@ -214,6 +209,12 @@ function varargout = shadow(Z, varargin)
 
     %% Output
     if nargout == 0
+        figure('Name', 'Shadow Map')
+        surf(Z, isShadowed, ...
+            'EdgeColor', 'none');
+        colormap(gray);
+        axis equal
+        axis off
         return
     end
 
@@ -238,15 +239,13 @@ end
 
 % Rotate and tilt the map to the light direction
 function [Irotated, Jrotated, Ztilted] = ...
-        rotateandtiltmap(I, J, Z, lightVec)
+        rotateandtiltmap(I, J, Z, light)
     % Make sure the transformation functions are found in the path
     addpath(fullfile(fileparts(mfilename('fullpath')), ...
-    'unit-sphere-transformations'))
-    % Process the light vector
-    [lightAzimuth, lightAlt] = vec2azal(lightVec);
+    'unit-sphere-transformations'));
 
     % Rotate the coordinate system
-    angOfRotation = lightAzimuth + pi / 2;
+    angOfRotation = deg2rad(light.Azimuth) + pi / 2;
     RotationMatrix = ...
         [cos(angOfRotation), -sin(angOfRotation); ...
          sin(angOfRotation), cos(angOfRotation)];
@@ -256,15 +255,13 @@ function [Irotated, Jrotated, Ztilted] = ...
     Jrotated = reshape(IJrotated(:, 2), size(J));
 
     % Tilt the map
-    Ztilted = Z + Irotated * tan(lightAlt);
+    Ztilted = Z + Irotated * tand(light.Altitude);
 end
 
 % Find which pixels are potential shadow casters
 function [isCaster, nCaster] = findshadowcasters(light, Z)
     %% Initialisation and preallocation
-    % Make sure the light vector is a 2D unit vector
-    light = light(1:2);
-    light = light / norm(light(:));
+    light = light.HorizontalDirection;
 
     % Preallocate the output
     slopeMap = zeros(size(Z));
@@ -344,6 +341,7 @@ function [I, J, Z, shadow, caster, sortId] = ...
     I = IJZ(:, 1);
     J = IJZ(:, 2);
     Z = IJZ(:, 3);
+
     shadow = logical(IJZ(:, 4));
     caster = caster(sortId);
 end
@@ -369,6 +367,7 @@ function [J, IJZ, beamWidth, nBin] = ...
     % Randomly chosen numbers
     nBinScale = 2 ^ 3;
     nBinMax = 2 ^ 12;
+
     % Normalise the coordinates to the range of [0, nBin]
     Jlim = [min(J), max(J)];
     nBin = min(floor(diff(Jlim) / beamWidth / nBinScale), nBinMax);
@@ -424,7 +423,9 @@ function [isShadowed, distFromShadow] = demo
     isShadowed = imgaussfilt(double(isShadowed), 3);
 
     % Display the shadow map
-    figure('Name', ['Demo of ', upper(mfilename)])
+    figName = ['Demo of ', upper(mfilename)];
+    figure('Name', figName);
+
     % Blend the shadow map with the hillshade map
     surf(X, Y, Z, hillshadeMap .* (1 - isShadowed), ...
         'EdgeColor', 'none');

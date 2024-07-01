@@ -24,13 +24,15 @@
 %   X - X coordinates
 %   Y - Y coordinates
 %   h - Mesh size
-%   light - Light direction
+%   light - Light object
 %
 % See also
 %   SAMPLEDEM2
 %
 % Authored by
 %   En-Chi Lee <williameclee@gmail.com>, 2024-06-30
+% Last modified by
+%   En-Chi Lee <williameclee@gmail.com>, 2024-07-01
 
 function varargout = sampledem(varargin)
     %% Initialistion
@@ -57,8 +59,9 @@ function varargout = sampledem(varargin)
         X, Y', 'linear');
 
     light = [-1, 1, 0.5];
-    light = light / norm(light);
+    light = LightSource('parallel', light);
 
+    %% Returning requested outputs
     if nargout == 0
         figure('Name', 'Sample DEM')
         surf(X, Y, Z, ...

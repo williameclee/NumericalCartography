@@ -20,9 +20,13 @@ It will generate a simple 3D terrain model with a light source and a shadow.
 - `sampledem` and `sampledem2`: Generate sample 3D terrain models.
 - `shadow`: Computse the shadow of a 3D terrain model with a light source.
 
+## Objects
+
+- `LightSource`: A class to define a light source.
+
 ## Contributors
 
 - [En-Chi Lee](mailto:williameclee@gmail.com)
 
 Last modified by:
-[En-Chi Lee](mailto:williameclee@gmail.com) 2024-06-30
+[En-Chi Lee](mailto:williameclee@gmail.com) 2024-07-01

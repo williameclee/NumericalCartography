@@ -31,6 +31,8 @@
 %
 % Authored by
 %   En-Chi Lee <williameclee@gmail.com>, 2024-06-30
+% Last modified by
+%   En-Chi Lee <williameclee@gmail.com>, 2024-07-01
 
 function varargout = sampledem2(varargin)
     %% Initialistion
@@ -48,8 +50,9 @@ function varargout = sampledem2(varargin)
     Z = Z / max(abs(Z(:))) * 0.3;
 
     light = [-1, 1, 0.5];
-    light = light / norm(light);
+    light = LightSource('parallel', light);
 
+    %% Returning requested outputs
     if nargout == 0
         figure('Name', 'Sample DEM')
         surf(X, Y, Z, ...

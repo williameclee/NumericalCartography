@@ -3,8 +3,7 @@
 %
 % Syntax
 %   hillshadeMap = hillshade(Z)
-%   hillshadeMap = hillshade(Z, [azimuth, altitude])
-%   hillshadeMap = hillshade(Z, [Lx, Ly, Lz])
+%   hillshadeMap = hillshade(Z, L)
 %   hillshadeMap = hillshade(Z, __, h)
 %   hillshadeMap = hillshade(Z, __, VE)
 %   hillshadeMap = hillshade(Z, __, Name, Value)
@@ -16,13 +15,8 @@
 %       calculates the hillshade of the DEM Z with the default light
 %       azimuth and altitude of 45 degrees.
 %       If Z is a normal map, the normal map is used for the calculation.
-%   hillshadeMap = hillshade(Z, [azimuth, altitude])
-%       calculates the hillshade of the DEM Z with the light azimuth and
-%       altitude specified in the 1-by-2 vector [azimuth, altitude] in
-%       degrees.
-%   hillshadeMap = hillshade(Z, [Lx, Ly, Lz])
-%       calculates the hillshade of the DEM Z with the light direction
-%       specified in the 1-by-3 vector L.
+%   hillshadeMap = hillshade(Z, L)
+%       calculates the hillshade of the DEM Z with the light source.
 %   hillshadeMap = hillshade(Z, __, h)
 %       calculates the hillshade of the DEM Z with the mesh size h. The DEM
 %       is assumed to have the same mesh size in both dimensions.
@@ -39,9 +33,10 @@
 %
 % Input Aarguments
 %   Z - DEM matrix (Nx-by-Ny) or normal map (Nx-by-Ny-by-3)
-%   L - Light direction vector
-%       - 1-by-2 vector [azimuth, altitude] in degrees
-%       - 1-by-3 vector [Lx, Ly, Lz] of the (invert) light direction
+%   L - Light source
+%       - LightSource object.
+%       - 1-by-2 vector [azimuth, altitude] in degrees.
+%       - 1-by-3 vector [Lx, Ly, Lz] of the (invert) light direction.
 %       The default value is [-1, 1, 1].
 %   h - Mesh size
 %       The default value is 1.
@@ -55,30 +50,36 @@
 %
 % Output Arguments
 %   hillshadeMap - Hillshade map
-%   L - Light direction vector
+%   L - Light object
 %   r - Flat reflectance
 %       The flat reflectance is the reflectance of a flat surface facing
 %       upwards.
 %   N - Normal map
 %
+% See also
+%   NORMAL, LIGHTSOURCE
+%
 % Authored by
 %   En-Chi Lee <williameclee@gmail.com>, 2024-06-23
 % Last modified by
-%   En-Chi Lee <williameclee@gmail.com>, 2024-06-30
+%   En-Chi Lee <williameclee@gmail.com>, 2024-07-01
 
 function varargout = hillshade(Z, varargin)
     %% Initialisation and preallocation
     % Make sure subfunctions in the path
     addpath(fullfile(fileparts(mfilename('fullpath')), ...
-    'unit-sphere-transformations'))
+    'unit-sphere-transformations'));
+    addpath(fullfile(fileparts(mfilename('fullpath')), ...
+    'aux'));
 
     % Input parser
     p = inputParser;
     addRequired(p, 'HeightMap', ...
         @(x) isnumeric(x) || ...
         (ischar(x) && strcmp(x, 'demo')));
-    addOptional(p, 'LightVector', [-1, 1, 1], ...
-        @(x) isvector(x) && (length(x) == 2 || length(x) == 3));
+    addOptional(p, 'Light', [-1, 1, 1], ...
+        @(x) (isvector(x) && (length(x) == 2 || length(x) == 3)) ...
+        || isa(x, 'LightSource'));
     addOptional(p, 'MeshSize', 1, ...
         @(x) isscalar(x) && isnumeric(x) && (x > 0));
     addOptional(p, 'ZFactor', 1, ...
@@ -91,14 +92,14 @@ function varargout = hillshade(Z, varargin)
     parse(p, Z, varargin{:});
     Z = p.Results.HeightMap;
     h = p.Results.MeshSize;
-    lightVector = p.Results.LightVector;
+    light = p.Results.Light;
     zFactor = p.Results.ZFactor;
     shadingMethod = lower(p.Results.ShadingMethod);
     indexScheme = lower(p.Results.IndexScheme);
 
     % Check for demo mode
     if strcmp(Z, 'demo')
-        [hillshadeMap, lightVector, flarReflectance, normalMap] ...
+        [hillshadeMap, light, flarReflectance, normalMap] ...
             = demo;
 
         if nargout == 0
@@ -106,35 +107,27 @@ function varargout = hillshade(Z, varargin)
         end
 
         varargout = ...
-            {hillshadeMap, lightVector, flarReflectance, normalMap};
+            {hillshadeMap, light, flarReflectance, normalMap};
         return
     end
 
     %% Variable formatting
-    % Format the light direction to vector form
-    if length(lightVector) == 2
-        % Convert azimuth and altitude to vector
-        lightVector = azald2vec(lightVector(1), lightVector(2));
-    else
-        % Make sure the light vector is a unit vector
-        lightVector = lightVector / norm(lightVector(:));
-    end
-
-    % Make sure the light direction is pointing upwards
-    % (i.e. towards the light source)
-    lightVector = lightVector * sign(lightVector(3));
-    
     % If the input is a normal map
     isNormalMap = (ndims(Z) == 3 && size(Z, 3) == 3);
 
-    % Rescale the DEM
+    % Format the light direction to vector form
+    if ~isa(light, 'LightSource')
+        light = LightSource('parallel', light);
+    end
+
+    % Format the indexing scheme
     if strcmp(indexScheme, 'ndgrid')
         Z = Z';
     end
 
     %% Hillshade calculation
     % Compute the flat reflectance
-    flarReflectance = lightVector(3);
+    flarReflectance = light.Direction(3);
 
     if isNormalMap
         normalMap = Z;
@@ -149,7 +142,7 @@ function varargout = hillshade(Z, varargin)
          reshape(normalMap(:, :, 3), [], 1) ...
      ];
 
-    hillshadeMap = normalMap * lightVector(:);
+    hillshadeMap = normalMap * light.Direction(:);
     hillshadeMap = reshape(hillshadeMap, size(Z(:, :, 1)));
 
     % Apply different shading methods
@@ -165,7 +158,7 @@ function varargout = hillshade(Z, varargin)
 
     %% Output
     if nargout == 0
-        figure
+        figure('Name', 'Hillshade Map')
         surf(Z, hillshadeMap, ...
             'EdgeColor', 'none');
         colormap(gray);
@@ -179,8 +172,7 @@ function varargout = hillshade(Z, varargin)
         normalMap = normalMap';
     end
 
-    lightVector = lightVector(:)';
-    varargout = {hillshadeMap, lightVector, flarReflectance, normalMap};
+    varargout = {hillshadeMap, light, flarReflectance, normalMap};
 
 end
 
@@ -194,9 +186,12 @@ function [hillshadeMap, light, flarReflectance, normalMap] = demo
         hillshade(Z, light, h, 'ShadingMethod', 'clamped');
 
     % Display the hillshade map
-    figure('Name', ['Demo of ', upper(mfilename)])
+    figName = ['Demo of ', upper(mfilename)];
+    figure('Name', figName);
+
     surf(X, Y, Z, hillshadeMap, ...
         'EdgeColor', 'none');
+
     colormap(gray);
     axis equal
     axis off

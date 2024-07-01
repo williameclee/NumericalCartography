@@ -28,6 +28,8 @@
 %
 % Authored by
 %   En-Chi Lee <williameclee@gmail.com>, 2024-06-29
+% Last modified by
+%   En-Chi Lee <williameclee@gmail.com>, 2024-07-01
 
 function normalMap = normal(Z, varargin)
     %% Initialisation
@@ -35,9 +37,9 @@ function normalMap = normal(Z, varargin)
     p = inputParser;
     addRequired(p, 'Z', ...
         @(x) isnumeric(x) && ismatrix(x));
-    addRequired(p, 'h', ...
+    addOptional(p, 'h', 1, ...
         @(x) isscalar(x) && isnumeric(x) && (x > 0));
-    addRequired(p, 'zFactor', ...
+    addOptional(p, 'zFactor', 1,  ...
         @(x) isscalar(x) && isnumeric(x) && (x > 0));
     parse(p, Z, varargin{:});
     Z = p.Results.Z;
