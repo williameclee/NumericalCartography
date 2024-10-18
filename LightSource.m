@@ -7,7 +7,7 @@
 %
 % Description
 %   light = LightSource(type, position)
-%       generates a light source at the position and with the specified 
+%       generates a light source at the position and with the specified
 %       type.
 %   light = LightSource(type, position, color)
 %       generates a light source at the position with the specified colour.
@@ -16,11 +16,11 @@
 %   type - Type of light source
 %       The options are 'parallel' and 'point'.
 %   position - Position of the light source
-%       - 1-by-2 vector [azimuth, altitude] in degrees for a parallel 
+%       - 1-by-2 vector [azimuth, altitude] in degrees for a parallel
 %           light.
 %       - 1-by-3 vector [Px, Py, Pz] of the position.
 %   color - Colour of the light source
-%       A 1-by-3 vector [R, G, B] of the colour. The values are in the 
+%       A 1-by-3 vector [R, G, B] of the colour. The values are in the
 %       range of [0, 1].
 %       The default value is [1, 1, 1].
 %
@@ -28,7 +28,7 @@
 %   light - Light source object
 %
 % Authored by
-%   En-Chi Lee <williameclee@gmail.com>, 2024-07-01
+%   2024-07-01, En-Chi Lee williameclee@gmail.com
 
 classdef LightSource
 
@@ -40,7 +40,7 @@ classdef LightSource
         Position(1, 3) double {mustBeNumeric};
         Direction(1, 3) double {mustBeNumeric};
         HorizontalDirection(1, 2) double {mustBeNumeric};
-        
+
         % Azimuth and altitude of the light source
         Azimuth double {mustBeNumeric};
         Altitude double {mustBeNumeric};
@@ -53,6 +53,10 @@ classdef LightSource
 
         function obj = LightSource(type, varargin)
             %% Initialisation
+            % Make sure subfunctions in the path
+            addpath(fullfile(fileparts(mfilename('fullpath')), ...
+            'unit-sphere-transformations'));
+            
             % Parse inputs
             p = inputParser;
             addRequired(p, 'Type', @(x) isstring(x) || ischar(x));

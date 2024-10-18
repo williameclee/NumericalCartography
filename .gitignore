@@ -4,10 +4,10 @@
 
 # Test files
 *test*.m
-*demo*.m
 
 # Cache files
 *.asv
 
 # Untracked files
 ray-tracing/
+notes/
